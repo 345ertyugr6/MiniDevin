@@ -229,6 +229,14 @@ class MiniDevin:
 
         print("-" * len(header))
 
+        print("\nLLM 프롬프트 전문:")
+        print("-" * 80)
+        for index, entry in enumerate(logs, start=1):
+            prompt = entry.get("prompt", "").rstrip()
+            print(f"[{index}] {entry.get('api_type', '')} / {entry.get('model', '')}")
+            print(prompt if prompt else "(프롬프트가 비어 있습니다)")
+            print("-" * 80)
+
     def _display_knowledge_stats(self) -> None:
         """자동 수정 루프에서 활용한 지식 캐시 통계를 출력한다."""
 
