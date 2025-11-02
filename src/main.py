@@ -59,8 +59,9 @@ class MiniDevin:
         print("\n[3/4] 자동 수정 기능과 함께 계획 실행 중...")
         summary = await self.auto_repair.execute_plan(plan)
 
-        # 4단계: 실행 결과 요약을 출력하고 캐시 정보를 보여준다.
+        # 4단계: 실행 결과 요약을 출력하고 성공 시 코드와 테스트 결과를 보여준다.
         self._display_summary(summary)
+        self._display_success_details(summary)
         self._display_knowledge_stats()
 
         print("\n" + "=" * 80)
@@ -141,6 +142,30 @@ class MiniDevin:
         print(f"완료된 단계: {completed_steps}")
         print(f"실패한 단계: {failed_steps}")
         print(f"성공률: {success_rate:.1f}%")
+
+    @staticmethod
+    def _display_success_details(summary: dict) -> None:
+        """성공적으로 실행된 코드와 테스트 결과를 출력한다."""
+
+        successful_results = [result for result in summary.get("results", []) if result.get("success")]
+
+        if not successful_results:
+            print("\n성공한 단계가 없어 코드와 테스트 결과를 표시할 수 없습니다.")
+            return
+
+        final_result = successful_results[-1]
+        code = (final_result.get("code") or "").rstrip()
+        output = (final_result.get("output") or "").rstrip()
+
+        print("\n성공한 코드")
+        print("-" * 80)
+        print(code if code else "(코드가 비어 있습니다)")
+        print("-" * 80)
+
+        print("테스트/실행 결과")
+        print("-" * 80)
+        print(output if output else "(출력 결과가 없습니다)")
+        print("-" * 80)
 
     def _display_knowledge_stats(self) -> None:
         """자동 수정 루프에서 활용한 지식 캐시 통계를 출력한다."""
