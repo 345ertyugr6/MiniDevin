@@ -8,7 +8,7 @@ import os
 import time
 import aiohttp
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 
 
 class LLMClient:
@@ -33,12 +33,14 @@ class LLMClient:
     async def _ensure_session(self):
         """Ensure aiohttp session exists"""
         if self.session is None:
-            headers = None
+            headers = {}
             if self.api_type == "openai":
                 api_key = os.getenv("OPENAI_API_KEY")
                 if api_key:
-                    headers = {"Authorization": f"Bearer {api_key}"}
-            self.session = aiohttp.ClientSession(headers=headers)
+                    headers["Authorization"] = f"Bearer {api_key}"
+                headers.setdefault("Content-Type", "application/json")
+                headers.setdefault("Accept", "application/json")
+            self.session = aiohttp.ClientSession(headers=headers or None)
     
     async def generate(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000) -> str:
         """
@@ -107,34 +109,49 @@ class LLMClient:
             return "Error: Request timed out"
         except Exception as e:
             return f"Error: {str(e)}"
-    
+
     async def _generate_openai(self, prompt: str, temperature: float, max_tokens: int) -> str:
         """Generate using OpenAI-compatible API"""
-        url = f"{self.base_url}/v1/chat/completions"
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
-        
-        try:
-            headers = None
-            api_key = os.getenv("OPENAI_API_KEY")
-            if api_key:
-                headers = {"Authorization": f"Bearer {api_key}"}
 
+        def _should_use_responses_api(model_name: str) -> bool:
+            lowered = model_name.lower()
+            prefixes = ("gpt-4.1", "gpt-4o", "gpt-5")
+            return any(lowered.startswith(prefix) for prefix in prefixes)
+
+        use_responses_api = _should_use_responses_api(self.model)
+
+        if use_responses_api:
+            url = f"{self.base_url}/v1/responses"
+            payload = {
+                "model": self.model,
+                "input": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            }
+        else:
+            url = f"{self.base_url}/v1/chat/completions"
+            payload = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+
+        try:
             async with self.session.post(
                 url,
                 json=payload,
-                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=120)
             ) as response:
+                data = await _safe_json(response)
+
                 if response.status == 200:
-                    data = await response.json()
+                    if use_responses_api:
+                        return _extract_from_responses(data)
                     return data["choices"][0]["message"]["content"]
-                else:
-                    return f"Error: HTTP {response.status}"
+
+                error_detail = data.get("error") if isinstance(data, dict) else data
+                return f"Error: HTTP {response.status} - {error_detail}"
         except asyncio.TimeoutError:
             return "Error: Request timed out"
         except Exception as e:
@@ -155,3 +172,57 @@ class LLMClient:
         """Clear accumulated request logs"""
 
         self.request_logs.clear()
+
+
+async def _safe_json(response: aiohttp.ClientResponse) -> Any:
+    """Safely deserialize a JSON response body."""
+
+    try:
+        return await response.json()
+    except Exception:
+        try:
+            text = await response.text()
+        except Exception:
+            return {}
+
+        if not text:
+            return {}
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return text
+
+
+def _extract_from_responses(payload: Any) -> str:
+    """Extract assistant text from the Responses API payload."""
+
+    if not isinstance(payload, dict):
+        return str(payload)
+
+    output_blocks = payload.get("output") or []
+    collected_text: List[str] = []
+
+    for block in output_blocks:
+        if not isinstance(block, dict):
+            continue
+
+        contents = block.get("content") or []
+        for content in contents:
+            if not isinstance(content, dict):
+                continue
+
+            if content.get("type") in {"output_text", "text"}:
+                text = content.get("text")
+                if text:
+                    collected_text.append(text)
+
+    if collected_text:
+        return "\n".join(collected_text).strip()
+
+    if "output_text" in payload and isinstance(payload["output_text"], list):
+        fallback_text = "\n".join(str(item) for item in payload["output_text"] if item)
+        if fallback_text:
+            return fallback_text.strip()
+
+    return str(payload)
