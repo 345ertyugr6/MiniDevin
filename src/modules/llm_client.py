@@ -4,6 +4,7 @@ Handles communication with LLM APIs (Ollama or OpenAI-compatible)
 """
 
 import asyncio
+import os
 import aiohttp
 import json
 from typing import Dict, Any, Optional
@@ -30,7 +31,12 @@ class LLMClient:
     async def _ensure_session(self):
         """Ensure aiohttp session exists"""
         if self.session is None:
-            self.session = aiohttp.ClientSession()
+            headers = None
+            if self.api_type == "openai":
+                api_key = os.getenv("OPENAI_API_KEY")
+                if api_key:
+                    headers = {"Authorization": f"Bearer {api_key}"}
+            self.session = aiohttp.ClientSession(headers=headers)
     
     async def generate(self, prompt: str, temperature: float = 0.7, max_tokens: int = 2000) -> str:
         """
@@ -91,7 +97,17 @@ class LLMClient:
         }
         
         try:
-            async with self.session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as response:
+            headers = None
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key:
+                headers = {"Authorization": f"Bearer {api_key}"}
+
+            async with self.session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
                 if response.status == 200:
                     data = await response.json()
                     return data["choices"][0]["message"]["content"]

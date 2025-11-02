@@ -88,6 +88,17 @@ python src/main.py "write a web scraper" --model mistral:7b-instruct-q4_0 --max-
 python src/main.py "build a calculator" --api-type openai --llm-url http://localhost:8000
 ```
 
+#### Providing OpenAI API Keys
+
+When using the OpenAI API type, MiniDevin automatically looks for an `OPENAI_API_KEY` environment variable and, if present, sends it as a Bearer token in the `Authorization` header. Set the variable before launching MiniDevin:
+
+```bash
+export OPENAI_API_KEY=sk-********************************
+python src/main.py "build a calculator" --api-type openai --llm-url https://api.openai.com
+```
+
+If you are connecting to an OpenAI-compatible proxy that does not require authentication, you can omit the variable.
+
 ### Interactive Mode
 
 ```bash

@@ -88,6 +88,17 @@ python src/main.py "write a web scraper" --model mistral:7b-instruct-q4_0 --max-
 python src/main.py "build a calculator" --api-type openai --llm-url http://localhost:8000
 ```
 
+#### OpenAI API 키 전달
+
+OpenAI API 유형을 사용할 때 MiniDevin은 자동으로 `OPENAI_API_KEY` 환경 변수를 확인하고 값이 있으면 `Authorization` 헤더에 Bearer 토큰으로 실어 보냅니다. MiniDevin을 실행하기 전에 다음과 같이 설정하세요.
+
+```bash
+export OPENAI_API_KEY=sk-********************************
+python src/main.py "build a calculator" --api-type openai --llm-url https://api.openai.com
+```
+
+인증이 필요 없는 OpenAI 호환 프록시에 연결하는 경우에는 환경 변수를 생략해도 됩니다.
+
 ### 인터랙티브 모드
 
 ```bash
