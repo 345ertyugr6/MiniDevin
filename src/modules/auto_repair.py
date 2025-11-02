@@ -172,12 +172,9 @@ class AutoRepairLoop:
             else:
                 print(f"✗ Step failed after {result['attempts']} attempts")
                 print(f"Final error: {result['error'][:200]}")
-                
-                user_decision = input("\nContinue to next step? (y/n): ").strip().lower()
-                if user_decision != 'y':
-                    print("Stopping execution.")
-                    break
-        
+
+                print("Auto-continue enabled: proceeding to next step.")
+
         summary = {
             "total_steps": len(plan["steps"]),
             "completed_steps": sum(1 for r in results if r["success"]),
