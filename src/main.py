@@ -2,10 +2,14 @@
 
 import asyncio
 import argparse
+import logging
 from modules.llm_client import LLMClient
 from modules.prompt_interface import PromptInterface
 from modules.planner import Planner
 from modules.auto_repair import AutoRepairLoop
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class MiniDevin:
@@ -53,7 +57,27 @@ class MiniDevin:
         # 2단계: 분석된 작업을 기반으로 실행 계획을 생성한다.
         print("\n[2/4] 실행 계획 수립 중...")
         plan = await self.planner.create_plan(task)
+        LOGGER.debug("Planner returned plan status=%s", plan.get("status"))
         self._display_plan(plan)
+
+        if plan.get("status") == "failed":
+            print("\n[3/4] 자동 수정 기능과 함께 계획 실행 중...")
+            print("계획 생성에 실패하여 실행을 진행할 수 없습니다.")
+            self._display_plan_failure(plan)
+            empty_summary = {
+                "total_steps": 0,
+                "completed_steps": 0,
+                "failed_steps": 0,
+                "results": []
+            }
+            self._display_summary(empty_summary)
+            self._display_success_details(empty_summary)
+            self._display_knowledge_stats()
+            print("\n" + "=" * 80)
+            print("모든 작업이 완료되었습니다!")
+            print("=" * 80 + "\n")
+            await self.auto_repair.close()
+            return
 
         # 3단계: 생성된 계획을 순차적으로 실행하고 필요 시 자동 수정을 수행한다.
         print("\n[3/4] 자동 수정 기능과 함께 계획 실행 중...")
@@ -123,6 +147,10 @@ class MiniDevin:
     def _display_plan(plan: dict) -> None:
         """생성된 실행 계획을 단계별로 출력한다."""
 
+        if plan.get("status") == "failed":
+            print("계획 생성에 실패했습니다.")
+            return
+
         steps = plan.get("steps", [])
         print(f"총 {len(steps)}개의 단계를 생성했습니다:")
         for index, step in enumerate(steps, start=1):
@@ -180,6 +208,16 @@ class MiniDevin:
         print(f"  캐시 조회 성공 횟수: {stats.get('cache_hits', 0)}")
 
     @staticmethod
+    def _display_plan_failure(plan: dict) -> None:
+        """계획 생성 실패 사유를 출력한다."""
+
+        error_message = plan.get("error", "알 수 없는 오류가 발생했습니다.")
+        print("\n계획 생성 오류")
+        print("-" * 80)
+        print(error_message)
+        print("-" * 80)
+
+    @staticmethod
     def _calculate_success_rate(completed_steps: int, total_steps: int) -> float:
         """성공률(%)을 계산한다.
 
@@ -189,6 +227,19 @@ class MiniDevin:
         if total_steps == 0:
             return 0.0
         return (completed_steps / total_steps) * 100
+
+
+def _configure_logging(debug_enabled: bool) -> None:
+    """애플리케이션 전체에서 사용할 로깅 출력을 설정한다."""
+
+    log_level = logging.DEBUG if debug_enabled else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    # 디버그 모드에서도 과도한 외부 라이브러리 로그는 억제한다.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def main():
@@ -223,9 +274,16 @@ async def main():
         default=3,
         help="Maximum repair attempts per step (default: 3)"
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose debug logging"
+    )
     
     # 명령행 인자를 해석하여 실행 설정을 로드한다.
     args = parser.parse_args()
+    
+    _configure_logging(args.debug)
     
     mini_devin = MiniDevin(
         llm_base_url=args.llm_url,
