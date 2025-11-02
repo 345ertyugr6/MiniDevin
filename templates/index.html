@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MiniDevin 웹 UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              midnight: '#0f172a',
+              surface: '#111827',
+              accent: '#38bdf8',
+            },
+          },
+        },
+      };
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body class="bg-midnight text-slate-100 min-h-screen">
+    <div class="flex flex-col min-h-screen">
+      <header class="sticky top-0 z-20 backdrop-blur bg-slate-950/80 border-b border-slate-800">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 class="text-2xl font-semibold">MiniDevin 웹 대시보드</h1>
+            <p class="text-slate-400 text-sm">
+              프롬프트를 입력하고 실행 과정을 실시간으로 확인하세요.
+            </p>
+          </div>
+          <form id="run-form" class="w-full md:w-auto flex flex-col md:flex-row gap-3">
+            <input
+              id="prompt-input"
+              type="text"
+              placeholder="예: README를 기반으로 프로젝트 요약 작성"
+              class="flex-1 rounded-lg bg-slate-900/70 border border-slate-700 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+            <div class="flex items-center gap-2">
+              <button
+                id="run-button"
+                type="submit"
+                class="px-4 py-2 rounded-lg bg-accent text-slate-900 font-semibold text-sm shadow hover:bg-sky-400 transition"
+              >
+                실행
+              </button>
+              <button
+                id="stop-button"
+                type="button"
+                class="px-3 py-2 rounded-lg border border-red-500 text-red-400 text-sm font-semibold hidden hover:bg-red-500/10 transition"
+              >
+                ⏹️ 중단
+              </button>
+            </div>
+          </form>
+        </div>
+        <div class="bg-slate-950/60 border-t border-slate-800">
+          <div class="max-w-6xl mx-auto px-4 py-2 flex flex-wrap items-center gap-3 text-sm">
+            <div class="flex items-center gap-2">
+              <span id="status-indicator" class="w-2.5 h-2.5 rounded-full bg-slate-600"></span>
+              <span id="status-text" class="text-slate-300">대기 중</span>
+            </div>
+            <span id="status-timestamp" class="text-xs text-slate-500"></span>
+            <a
+              id="log-link"
+              href="#"
+              class="text-xs text-accent hidden"
+              target="_blank"
+              rel="noopener"
+            ></a>
+          </div>
+        </div>
+      </header>
+      <main class="flex-1">
+        <div class="max-w-6xl mx-auto px-4 py-6 grid gap-6 lg:grid-cols-3">
+          <section class="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-xl shadow">
+            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 class="text-lg font-semibold">실시간 로그</h2>
+              <span class="text-xs text-slate-400">MiniDevin CLI 출력이 순서대로 표시됩니다.</span>
+            </div>
+            <div id="log-container" class="px-5 py-4 h-96 overflow-y-auto font-mono text-sm space-y-1">
+              <p class="text-slate-500 text-sm">아직 출력이 없습니다.</p>
+            </div>
+          </section>
+          <section class="bg-slate-900/70 border border-slate-800 rounded-xl shadow">
+            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 class="text-lg font-semibold">실행 요약</h2>
+              <span class="text-xs text-slate-400">단계별 성공률과 결과를 확인하세요.</span>
+            </div>
+            <div id="summary-container" class="px-5 py-4 space-y-5 text-sm">
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <span class="block text-xs uppercase text-slate-400">총 단계</span>
+                  <span id="summary-total" class="text-xl font-semibold">-</span>
+                </div>
+                <div>
+                  <span class="block text-xs uppercase text-slate-400">완료</span>
+                  <span id="summary-completed" class="text-xl font-semibold">-</span>
+                </div>
+                <div>
+                  <span class="block text-xs uppercase text-slate-400">실패</span>
+                  <span id="summary-failed" class="text-xl font-semibold">-</span>
+                </div>
+                <div>
+                  <span class="block text-xs uppercase text-slate-400">성공률</span>
+                  <span id="summary-success" class="text-xl font-semibold">-</span>
+                </div>
+              </div>
+              <div class="space-y-3">
+                <div>
+                  <h3 class="text-xs uppercase text-slate-400 tracking-wide">최종 코드</h3>
+                  <pre class="rounded-lg bg-slate-950/80 border border-slate-800 overflow-x-auto"><code id="code-content" class="language-python text-xs leading-relaxed">코드가 준비되지 않았습니다.</code></pre>
+                </div>
+                <div>
+                  <h3 class="text-xs uppercase text-slate-400 tracking-wide">테스트/실행 결과</h3>
+                  <pre id="output-content" class="rounded-lg bg-slate-950/80 border border-slate-800 overflow-x-auto text-xs font-mono leading-relaxed text-slate-200 p-4">실행 결과가 없습니다.</pre>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="lg:col-span-3 bg-slate-900/70 border border-slate-800 rounded-xl shadow">
+            <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <h2 class="text-lg font-semibold">LLM 요청 기록</h2>
+              <span id="llm-count" class="text-xs text-slate-400">총 0건</span>
+            </div>
+            <div id="llm-container" class="px-5 py-4 space-y-4 text-sm">
+              <p class="text-slate-500 text-sm">아직 LLM 요청이 기록되지 않았습니다.</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
