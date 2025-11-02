@@ -3,6 +3,7 @@
 import asyncio
 import argparse
 import logging
+from typing import Any, Dict, List
 from modules.llm_client import LLMClient
 from modules.prompt_interface import PromptInterface
 from modules.planner import Planner
@@ -47,6 +48,9 @@ class MiniDevin:
             user_input: 사용자가 수행하길 원하는 작업 설명 문자열.
         """
 
+        # 새 실행마다 LLM 요청 기록을 초기화한다.
+        self.llm_client.reset_request_logs()
+
         self._display_banner("MiniDevin - Lightweight Autonomous Development AI")
 
         # 1단계: 사용자 입력을 분석하여 구조화된 작업으로 변환한다.
@@ -72,6 +76,7 @@ class MiniDevin:
             }
             self._display_summary(empty_summary)
             self._display_success_details(empty_summary)
+            self._display_llm_stats()
             self._display_knowledge_stats()
             print("\n" + "=" * 80)
             print("모든 작업이 완료되었습니다!")
@@ -86,6 +91,7 @@ class MiniDevin:
         # 4단계: 실행 결과 요약을 출력하고 성공 시 코드와 테스트 결과를 보여준다.
         self._display_summary(summary)
         self._display_success_details(summary)
+        self._display_llm_stats()
         self._display_knowledge_stats()
 
         print("\n" + "=" * 80)
@@ -194,6 +200,69 @@ class MiniDevin:
         print("-" * 80)
         print(output if output else "(출력 결과가 없습니다)")
         print("-" * 80)
+
+    def _display_llm_stats(self) -> None:
+        """LLM 요청 통계를 표 형태로 출력한다."""
+
+        logs = self.llm_client.get_request_logs()
+
+        print("\nLLM 요청 통계:")
+        if not logs:
+            print("  기록된 요청이 없습니다.")
+            return
+
+        print(f"  총 요청 수: {len(logs)}")
+
+        table_columns = [
+            ("No.", 5, lambda idx, entry: str(idx)),
+            ("API", 10, lambda _idx, entry: entry.get("api_type", "")),
+            ("모델", 18, lambda _idx, entry: entry.get("model", "")),
+            ("시간(s)", 12, lambda _idx, entry: f"{entry.get('duration', 0.0):.3f}"),
+            ("성공", 8, lambda _idx, entry: "True" if entry.get("success") else "False"),
+        ]
+
+        header = "".join(f"{name:<{width}}" for name, width, _ in table_columns) + "프롬프트 요약"
+        separator = "-" * len(header)
+        print(separator)
+        print(header)
+        print(separator)
+
+        for index, entry in enumerate(logs, start=1):
+            prompt_preview = entry.get("prompt", "").replace("\n", " ").strip()
+            if len(prompt_preview) > 80:
+                prompt_preview = prompt_preview[:77] + "..."
+
+            row = "".join(
+                f"{formatter(index, entry):<{width}}"
+                for _name, width, formatter in table_columns
+            )
+            print(f"{row}{prompt_preview}")
+
+        print(separator)
+
+        self._display_llm_prompt_details(logs)
+
+    @staticmethod
+    def _display_llm_prompt_details(logs: List[Dict[str, Any]]) -> None:
+        """각 LLM 요청의 전체 프롬프트와 관련 정보를 출력한다."""
+
+        print("\n상세 프롬프트:")
+        print("=" * 80)
+        for index, entry in enumerate(logs, start=1):
+            prompt_body = entry.get("prompt", "").rstrip() or "(프롬프트가 비어 있습니다)"
+            response_preview = entry.get("response_preview", "").rstrip()
+
+            print(
+                f"{index}. API={entry.get('api_type', '')} 모델={entry.get('model', '')} "
+                f"온도={entry.get('temperature', '')} 최대토큰={entry.get('max_tokens', '')}"
+            )
+            print("프롬프트:")
+            print(prompt_body)
+            if response_preview:
+                print("\n응답 미리보기:")
+                print(response_preview)
+            if index != len(logs):
+                print("-" * 80)
 
     def _display_knowledge_stats(self) -> None:
         """자동 수정 루프에서 활용한 지식 캐시 통계를 출력한다."""
