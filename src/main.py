@@ -1,10 +1,6 @@
-"""
-MiniDevin - Lightweight Autonomous Development AI
-Main entry point
-"""
+"""MiniDevin 애플리케이션의 진입점을 정의하는 모듈."""
 
 import asyncio
-import sys
 import argparse
 from modules.llm_client import LLMClient
 from modules.prompt_interface import PromptInterface
@@ -13,103 +9,165 @@ from modules.auto_repair import AutoRepairLoop
 
 
 class MiniDevin:
-    def __init__(self, 
-                 llm_base_url: str = "http://localhost:11434",
-                 llm_model: str = "phi3:mini",
-                 api_type: str = "ollama",
-                 max_retries: int = 3):
-        """
-        Initialize MiniDevin
-        
+    """MiniDevin 실행 로직을 담는 핵심 클래스."""
+
+    def __init__(
+        self,
+        llm_base_url: str = "http://localhost:11434",
+        llm_model: str = "phi3:mini",
+        api_type: str = "ollama",
+        max_retries: int = 3,
+    ) -> None:
+        """MiniDevin 인스턴스를 초기화한다.
+
         Args:
-            llm_base_url: Base URL for LLM API
-            llm_model: Model name
-            api_type: API type (ollama or openai)
-            max_retries: Maximum repair attempts per step
+            llm_base_url: LLM 서버의 기본 URL.
+            llm_model: 사용할 모델 이름.
+            api_type: 사용할 API 타입(ollama 또는 openai).
+            max_retries: 자동 수정 루프에서 단계별로 허용할 최대 재시도 횟수.
         """
+
+        # LLM과 통신하는 클라이언트를 생성한다.
         self.llm_client = LLMClient(llm_base_url, llm_model, api_type)
+        # 사용자 입력을 해석하는 프롬프트 인터페이스를 준비한다.
         self.prompt_interface = PromptInterface()
+        # 작업 계획 수립을 담당하는 플래너를 생성한다.
         self.planner = Planner(self.llm_client)
+        # 실행 실패 시 자동으로 수정 시도를 반복하는 루프를 구성한다.
         self.auto_repair = AutoRepairLoop(self.llm_client, max_retries=max_retries)
-    
-    async def run(self, user_input: str):
-        """
-        Run MiniDevin with user input
-        
+
+    async def run(self, user_input: str) -> None:
+        """사용자 입력을 받아 전체 실행 절차를 처리한다.
+
         Args:
-            user_input: User's task description
+            user_input: 사용자가 수행하길 원하는 작업 설명 문자열.
         """
-        print("\n" + "="*80)
-        print("MiniDevin - Lightweight Autonomous Development AI")
-        print("="*80)
-        
-        print("\n[1/4] Parsing user input...")
+
+        self._display_banner("MiniDevin - Lightweight Autonomous Development AI")
+
+        # 1단계: 사용자 입력을 분석하여 구조화된 작업으로 변환한다.
+        print("\n[1/4] 사용자 입력 분석 중...")
         task = await self.prompt_interface.parse_user_input(user_input)
-        print(f"Task Type: {task['task_type']}")
-        print(f"Description: {task['raw_input']}")
-        
-        print("\n[2/4] Creating execution plan...")
+        self._display_task(task)
+
+        # 2단계: 분석된 작업을 기반으로 실행 계획을 생성한다.
+        print("\n[2/4] 실행 계획 수립 중...")
         plan = await self.planner.create_plan(task)
-        print(f"Generated {len(plan['steps'])} steps:")
-        for idx, step in enumerate(plan['steps'], 1):
-            print(f"  {idx}. {step['description']}")
-        
-        print("\n[3/4] Executing plan with auto-repair...")
+        self._display_plan(plan)
+
+        # 3단계: 생성된 계획을 순차적으로 실행하고 필요 시 자동 수정을 수행한다.
+        print("\n[3/4] 자동 수정 기능과 함께 계획 실행 중...")
         summary = await self.auto_repair.execute_plan(plan)
-        
-        print("\n[4/4] Execution Summary")
-        print("="*80)
-        print(f"Total Steps: {summary['total_steps']}")
-        print(f"Completed: {summary['completed_steps']}")
-        print(f"Failed: {summary['failed_steps']}")
-        print(f"Success Rate: {summary['completed_steps']/summary['total_steps']*100:.1f}%")
-        
-        if self.auto_repair.knowledge_cache:
-            stats = self.auto_repair.knowledge_cache.get_stats()
-            print(f"\nKnowledge Cache Stats:")
-            print(f"  Search entries: {stats.get('search_entries', 0)}")
-            print(f"  Solution entries: {stats.get('solution_entries', 0)}")
-            print(f"  Cache hits: {stats.get('cache_hits', 0)}")
-        
-        print("\n" + "="*80)
-        print("Execution complete!")
-        print("="*80 + "\n")
-        
+
+        # 4단계: 실행 결과 요약을 출력하고 캐시 정보를 보여준다.
+        self._display_summary(summary)
+        self._display_knowledge_stats()
+
+        print("\n" + "=" * 80)
+        print("모든 작업이 완료되었습니다!")
+        print("=" * 80 + "\n")
+
         await self.auto_repair.close()
-    
-    async def interactive_mode(self):
-        """Run MiniDevin in interactive mode"""
-        print("\n" + "="*80)
-        print("MiniDevin - Interactive Mode")
-        print("="*80)
-        print("Type 'exit' or 'quit' to stop\n")
-        
+
+    async def interactive_mode(self) -> None:
+        """사용자와 실시간으로 상호작용하는 인터페이스를 실행한다."""
+
+        self._display_banner("MiniDevin - Interactive Mode")
+        print("프로그램을 종료하려면 'exit', 'quit', 'q' 중 하나를 입력하세요.\n")
+
         while True:
             try:
+                # 사용자의 명령을 입력받는다.
                 user_input = input("MiniDevin> ").strip()
-                
-                if user_input.lower() in ['exit', 'quit', 'q']:
-                    print("Goodbye!")
+
+                # 종료 명령이 입력되면 반복문을 탈출한다.
+                if user_input.lower() in ["exit", "quit", "q"]:
+                    print("안녕히 가세요!")
                     break
-                
+
+                # 공백 입력은 무시하고 다음 반복으로 넘어간다.
                 if not user_input:
                     continue
-                
+
                 await self.run(user_input)
-                
+
             except KeyboardInterrupt:
-                print("\n\nInterrupted. Goodbye!")
+                # 사용자가 Ctrl+C로 인터럽트한 경우 우아하게 종료한다.
+                print("\n\n사용자 인터럽트로 종료합니다. 안녕히 가세요!")
                 break
-            except Exception as e:
-                print(f"\nError: {e}")
+            except Exception as exc:  # pylint: disable=broad-except
+                # 예상치 못한 예외를 포착하여 디버깅을 돕는다.
+                print(f"\n오류가 발생했습니다: {exc}")
                 import traceback
+
                 traceback.print_exc()
-        
+
         await self.auto_repair.close()
+
+    def _display_banner(self, title: str) -> None:
+        """콘솔에 공통 헤더 배너를 출력한다."""
+
+        print("\n" + "=" * 80)
+        print(title)
+        print("=" * 80)
+
+    @staticmethod
+    def _display_task(task: dict) -> None:
+        """분석된 작업 정보를 자세히 출력한다."""
+
+        print(f"작업 유형: {task['task_type']}")
+        print(f"원본 설명: {task['raw_input']}")
+
+    @staticmethod
+    def _display_plan(plan: dict) -> None:
+        """생성된 실행 계획을 단계별로 출력한다."""
+
+        steps = plan.get("steps", [])
+        print(f"총 {len(steps)}개의 단계를 생성했습니다:")
+        for index, step in enumerate(steps, start=1):
+            print(f"  {index}. {step['description']}")
+
+    def _display_summary(self, summary: dict) -> None:
+        """계획 실행 결과를 요약하여 출력한다."""
+
+        print("\n[4/4] 실행 결과 요약")
+        print("=" * 80)
+        total_steps = summary.get("total_steps", 0)
+        completed_steps = summary.get("completed_steps", 0)
+        failed_steps = summary.get("failed_steps", 0)
+        success_rate = self._calculate_success_rate(completed_steps, total_steps)
+
+        print(f"총 단계 수: {total_steps}")
+        print(f"완료된 단계: {completed_steps}")
+        print(f"실패한 단계: {failed_steps}")
+        print(f"성공률: {success_rate:.1f}%")
+
+    def _display_knowledge_stats(self) -> None:
+        """자동 수정 루프에서 활용한 지식 캐시 통계를 출력한다."""
+
+        if not self.auto_repair.knowledge_cache:
+            return
+
+        stats = self.auto_repair.knowledge_cache.get_stats()
+        print("\n지식 캐시 통계:")
+        print(f"  검색 기록 수: {stats.get('search_entries', 0)}")
+        print(f"  해결책 기록 수: {stats.get('solution_entries', 0)}")
+        print(f"  캐시 조회 성공 횟수: {stats.get('cache_hits', 0)}")
+
+    @staticmethod
+    def _calculate_success_rate(completed_steps: int, total_steps: int) -> float:
+        """성공률(%)을 계산한다.
+
+        total_steps가 0일 경우 0으로 나누는 오류를 방지하기 위해 0을 반환한다.
+        """
+
+        if total_steps == 0:
+            return 0.0
+        return (completed_steps / total_steps) * 100
 
 
 async def main():
-    """Main entry point"""
+    """애플리케이션의 메인 진입점."""
     parser = argparse.ArgumentParser(
         description="MiniDevin - Lightweight Autonomous Development AI"
     )
@@ -141,19 +199,22 @@ async def main():
         help="Maximum repair attempts per step (default: 3)"
     )
     
+    # 명령행 인자를 해석하여 실행 설정을 로드한다.
     args = parser.parse_args()
     
     mini_devin = MiniDevin(
         llm_base_url=args.llm_url,
         llm_model=args.model,
         api_type=args.api_type,
-        max_retries=args.max_retries
+        max_retries=args.max_retries,
     )
     
     if args.task:
+        # 공백으로 구분된 문자열을 하나의 작업 설명으로 합친다.
         task_description = " ".join(args.task)
         await mini_devin.run(task_description)
     else:
+        # 작업 설명이 없으면 대화형 모드로 진입한다.
         await mini_devin.interactive_mode()
 
 
