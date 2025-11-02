@@ -5,9 +5,10 @@ Handles communication with LLM APIs (Ollama or OpenAI-compatible)
 
 import asyncio
 import os
+import time
 import aiohttp
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 
 class LLMClient:
@@ -27,6 +28,7 @@ class LLMClient:
         self.model = model
         self.api_type = api_type
         self.session = None
+        self.request_logs: List[Dict[str, Any]] = []
     
     async def _ensure_session(self):
         """Ensure aiohttp session exists"""
@@ -51,16 +53,36 @@ class LLMClient:
             Generated text
         """
         await self._ensure_session()
-        
+
+        start_time = time.perf_counter()
+        response_text = ""
+        log_entry: Dict[str, Any] = {
+            "api_type": self.api_type,
+            "model": self.model,
+            "prompt": prompt,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "success": False,
+        }
+
         try:
             if self.api_type == "ollama":
-                return await self._generate_ollama(prompt, temperature)
+                response_text = await self._generate_ollama(prompt, temperature)
             elif self.api_type == "openai":
-                return await self._generate_openai(prompt, temperature, max_tokens)
+                response_text = await self._generate_openai(prompt, temperature, max_tokens)
             else:
                 raise ValueError(f"Unsupported API type: {self.api_type}")
+
+            log_entry["success"] = not str(response_text).lower().startswith("error")
+            return response_text
         except Exception as e:
-            return f"Error generating response: {str(e)}"
+            response_text = f"Error generating response: {str(e)}"
+            log_entry["success"] = False
+            return response_text
+        finally:
+            log_entry["duration"] = time.perf_counter() - start_time
+            log_entry["response_preview"] = str(response_text).strip()[:200]
+            self.request_logs.append(log_entry)
     
     async def _generate_ollama(self, prompt: str, temperature: float) -> str:
         """Generate using Ollama API"""
@@ -123,3 +145,13 @@ class LLMClient:
         if self.session:
             await self.session.close()
             self.session = None
+
+    def get_request_logs(self) -> List[Dict[str, Any]]:
+        """Return collected request logs"""
+
+        return list(self.request_logs)
+
+    def reset_request_logs(self) -> None:
+        """Clear accumulated request logs"""
+
+        self.request_logs.clear()
