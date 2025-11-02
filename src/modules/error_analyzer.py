@@ -3,9 +3,13 @@ Error Analyzer Module
 Analyzes error logs and generates repair prompts
 """
 
+import logging
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from .llm_client import LLMClient
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ErrorAnalyzer:
@@ -45,8 +49,10 @@ class ErrorAnalyzer:
         Returns:
             Analysis dictionary with error type, cause, and suggestions
         """
+        LOGGER.debug("Analyzing error text (truncated): %s", error_text.strip()[:200])
         error_type = self._classify_error(error_text)
-        
+        LOGGER.debug("Classified error type: %s", error_type)
+
         analysis = {
             "error_type": error_type,
             "error_text": error_text,
@@ -54,15 +60,22 @@ class ErrorAnalyzer:
             "cause": None,
             "search_query": None,
             "suggestions": [],
-            "needs_search": False
+            "needs_search": False,
+            "missing_module": None
         }
-        
+
         if error_type == "ImportError":
+            missing_module = self._extract_missing_module(error_text)
+            LOGGER.debug("Detected missing module: %s", missing_module)
             analysis["cause"] = "Missing module or package"
-            analysis["search_query"] = self._extract_missing_module(error_text)
-            analysis["needs_search"] = True
+            analysis["missing_module"] = missing_module
+            if missing_module and missing_module != "unknown_module":
+                analysis["search_query"] = f"ModuleNotFoundError {missing_module}"
+            else:
+                analysis["search_query"] = "python ModuleNotFoundError"
+            analysis["needs_search"] = missing_module in (None, "", "unknown_module")
             analysis["suggestions"] = [
-                f"Install missing package: pip install {analysis['search_query']}",
+                f"Install missing package: pip install {missing_module}" if missing_module else "Install the required package",
                 "Check if module name is correct",
                 "Search for alternative packages"
             ]
@@ -87,10 +100,12 @@ class ErrorAnalyzer:
             analysis["needs_search"] = True
             analysis["search_query"] = self._generate_search_query(error_text, error_type)
             analysis["suggestions"] = ["Search online for solution"]
-        
+            LOGGER.debug("Fallback search query generated: %s", analysis["search_query"])
+
         detailed_analysis = await self._get_llm_analysis(error_text, code, error_type)
         analysis["llm_analysis"] = detailed_analysis
-        
+        LOGGER.debug("Received LLM error analysis (%d chars)", len(detailed_analysis))
+
         return analysis
     
     def _classify_error(self, error_text: str) -> str:
@@ -105,11 +120,11 @@ class ErrorAnalyzer:
         match = re.search(r"No module named ['\"]([^'\"]+)['\"]", error_text)
         if match:
             return match.group(1)
-        
+
         match = re.search(r"ImportError: (.+)", error_text)
         if match:
             return match.group(1).strip()
-        
+
         return "unknown_module"
     
     def _generate_search_query(self, error_text: str, error_type: str) -> str:
