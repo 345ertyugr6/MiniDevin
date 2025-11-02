@@ -3,6 +3,9 @@
 import asyncio
 import argparse
 import logging
+import sys
+from contextlib import contextmanager, redirect_stdout, redirect_stderr
+from typing import Iterator, Optional, TextIO
 from modules.llm_client import LLMClient
 from modules.prompt_interface import PromptInterface
 from modules.planner import Planner
@@ -284,6 +287,40 @@ def _configure_logging(debug_enabled: bool) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+class _TeeStream:
+    """표준 출력과 파일에 동시에 내용을 기록하기 위한 스트림 래퍼."""
+
+    def __init__(self, *streams: TextIO) -> None:
+        self._streams = streams
+
+    def write(self, data: str) -> int:
+        for stream in self._streams:
+            stream.write(data)
+        return len(data)
+
+    def flush(self) -> None:
+        for stream in self._streams:
+            stream.flush()
+
+    def isatty(self) -> bool:  # pragma: no cover - 터미널 여부 확인이 필요한 일부 라이브러리 호환용
+        return any(getattr(stream, "isatty", lambda: False)() for stream in self._streams)
+
+
+@contextmanager
+def _capture_output(output_path: Optional[str]) -> Iterator[None]:
+    """출력을 파일에 저장하면서 콘솔에도 동시에 출력한다."""
+
+    if not output_path:
+        yield
+        return
+
+    with open(output_path, "w", encoding="utf-8") as output_file:
+        tee_stdout = _TeeStream(sys.stdout, output_file)
+        tee_stderr = _TeeStream(sys.stderr, output_file)
+        with redirect_stdout(tee_stdout), redirect_stderr(tee_stderr):
+            yield
+
+
 async def main():
     """애플리케이션의 메인 진입점."""
     parser = argparse.ArgumentParser(
@@ -321,26 +358,41 @@ async def main():
         action="store_true",
         help="Enable verbose debug logging"
     )
-    
+    parser.add_argument(
+        "--use-gpt5",
+        action="store_true",
+        help="Use OpenAI GPT-5 model with default API endpoint"
+    )
+    parser.add_argument(
+        "--output-file",
+        help="Save full program output (stdout & stderr) to the specified file"
+    )
+
     # 명령행 인자를 해석하여 실행 설정을 로드한다.
     args = parser.parse_args()
-    
-    _configure_logging(args.debug)
-    
-    mini_devin = MiniDevin(
-        llm_base_url=args.llm_url,
-        llm_model=args.model,
-        api_type=args.api_type,
-        max_retries=args.max_retries,
-    )
-    
-    if args.task:
-        # 공백으로 구분된 문자열을 하나의 작업 설명으로 합친다.
-        task_description = " ".join(args.task)
-        await mini_devin.run(task_description)
-    else:
-        # 작업 설명이 없으면 대화형 모드로 진입한다.
-        await mini_devin.interactive_mode()
+
+    if args.use_gpt5:
+        args.api_type = "openai"
+        args.llm_url = "https://api.openai.com"
+        args.model = "gpt-5"
+
+    with _capture_output(args.output_file):
+        _configure_logging(args.debug)
+
+        mini_devin = MiniDevin(
+            llm_base_url=args.llm_url,
+            llm_model=args.model,
+            api_type=args.api_type,
+            max_retries=args.max_retries,
+        )
+
+        if args.task:
+            # 공백으로 구분된 문자열을 하나의 작업 설명으로 합친다.
+            task_description = " ".join(args.task)
+            await mini_devin.run(task_description)
+        else:
+            # 작업 설명이 없으면 대화형 모드로 진입한다.
+            await mini_devin.interactive_mode()
 
 
 if __name__ == "__main__":
