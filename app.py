@@ -9,7 +9,7 @@ from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -449,37 +449,6 @@ def stop_run() -> None:
         process.kill()
 
 
-def _resolve_ui_llm_configuration() -> Tuple[Optional[str], List[str], Dict[str, str]]:
-    """UI 실행 시 사용할 LLM 설정을 계산한다."""
-
-    openai_base_url = os.getenv("MINIDEVIN_OPENAI_BASE_URL", "https://api.openai.com")
-    normalized_base_url = openai_base_url.rstrip("/") or openai_base_url
-    openai_model = os.getenv("MINIDEVIN_OPENAI_MODEL", "gpt-4.1")
-    openai_api_key = os.getenv("MINIDEVIN_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-
-    if not openai_api_key:
-        return (
-            "OpenAI API 키가 설정되지 않았습니다. MINIDEVIN_OPENAI_API_KEY 또는 "
-            "OPENAI_API_KEY 환경 변수를 설정한 뒤 다시 시도하세요.",
-            [],
-            {},
-        )
-
-    cli_args = [
-        "--api-type",
-        "openai",
-        "--llm-url",
-        normalized_base_url,
-        "--model",
-        openai_model,
-        "--",
-    ]
-
-    env_updates = {"OPENAI_API_KEY": openai_api_key}
-
-    return (None, cli_args, env_updates)
-
-
 def _run_minidevin_process(prompt: str) -> None:
     parser = MiniDevinOutputParser()
     log_path = None
@@ -488,23 +457,37 @@ def _run_minidevin_process(prompt: str) -> None:
             log_path = run_state.log_path
     if log_path is None:
         log_path = LOG_DIR / f"run_{int(time.time())}.txt"
-    error_message, cli_args, env_updates = _resolve_ui_llm_configuration()
 
-    if error_message:
+    env = os.environ.copy()
+    openai_base_url = env.get("MINIDEVIN_OPENAI_BASE_URL", "https://api.openai.com")
+    normalized_base_url = openai_base_url.rstrip("/") or openai_base_url
+    openai_model = env.get("MINIDEVIN_OPENAI_MODEL", "gpt-4.1")
+    openai_api_key = env.get("MINIDEVIN_OPENAI_API_KEY") or env.get("OPENAI_API_KEY")
+
+    if not openai_api_key:
+        error_message = (
+            "OpenAI API 키가 설정되지 않았습니다. MINIDEVIN_OPENAI_API_KEY 또는 "
+            "OPENAI_API_KEY 환경 변수를 설정한 뒤 다시 시도하세요."
+        )
         event_manager.publish({"type": "error", "message": error_message})
         _finalize_run(status="failed", error=error_message)
         return
+
+    env["OPENAI_API_KEY"] = openai_api_key
 
     command = [
         sys.executable,
         "-u",
         str(BASE_DIR / "src" / "main.py"),
+        "--api-type",
+        "openai",
+        "--llm-url",
+        normalized_base_url,
+        "--model",
+        openai_model,
+        "--",
+        prompt,
     ]
-    command.extend(cli_args)
-    command.append(prompt)
-
-    env = os.environ.copy()
-    env.update(env_updates)
 
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
