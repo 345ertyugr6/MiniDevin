@@ -457,10 +457,20 @@ def _run_minidevin_process(prompt: str) -> None:
             log_path = run_state.log_path
     if log_path is None:
         log_path = LOG_DIR / f"run_{int(time.time())}.txt"
+    openai_base_url = os.getenv("MINIDEVIN_OPENAI_BASE_URL", "https://api.openai.com")
+    openai_model = os.getenv("MINIDEVIN_OPENAI_MODEL", "gpt-4.1")
+
     command = [
         sys.executable,
         "-u",
         str(BASE_DIR / "src" / "main.py"),
+        "--api-type",
+        "openai",
+        "--llm-url",
+        openai_base_url,
+        "--model",
+        openai_model,
+        "--",
         prompt,
     ]
 
