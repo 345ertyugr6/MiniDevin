@@ -765,12 +765,23 @@ def run_server(host: str, port: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MiniDevin 웹 UI 서버")
-    parser.add_argument("--host", default="127.0.0.1", help="바인딩할 호스트 (기본값: 127.0.0.1)")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="바인딩할 호스트 (기본값: 0.0.0.0)",
+    )
     parser.add_argument("--port", type=int, default=8000, help="사용할 포트 (기본값: 8000)")
+    parser.add_argument(
+        "--openai-api-key",
+        default=os.getenv("OPENAI_API_KEY"),
+        help="OpenAI API 키 (기본값: OPENAI_API_KEY 환경 변수 값)",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     arguments = parse_args()
+    if arguments.openai_api_key:
+        os.environ["OPENAI_API_KEY"] = arguments.openai_api_key
     event_manager.publish({"type": "status", "status": run_state.status})
     run_server(arguments.host, arguments.port)
