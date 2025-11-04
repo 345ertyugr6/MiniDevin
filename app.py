@@ -457,18 +457,42 @@ def _run_minidevin_process(prompt: str) -> None:
             log_path = run_state.log_path
     if log_path is None:
         log_path = LOG_DIR / f"run_{int(time.time())}.txt"
+    openai_base_url = os.getenv("MINIDEVIN_OPENAI_BASE_URL", "https://api.openai.com")
+    openai_model = os.getenv("MINIDEVIN_OPENAI_MODEL", "gpt-4.1")
+    openai_api_key = os.getenv("MINIDEVIN_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+    if not openai_api_key:
+        error_message = (
+            "OpenAI API 키가 설정되지 않았습니다. MINIDEVIN_OPENAI_API_KEY 또는 "
+            "OPENAI_API_KEY 환경 변수를 설정한 뒤 다시 시도하세요."
+        )
+        event_manager.publish({"type": "error", "message": error_message})
+        _finalize_run(status="failed", error=error_message)
+        return
+
     command = [
         sys.executable,
         "-u",
         str(BASE_DIR / "src" / "main.py"),
+        "--api-type",
+        "openai",
+        "--llm-url",
+        openai_base_url,
+        "--model",
+        openai_model,
+        "--",
         prompt,
     ]
+
+    env = os.environ.copy()
+    env["OPENAI_API_KEY"] = openai_api_key
 
     try:
         with open(log_path, "w", encoding="utf-8") as log_file:
             process = subprocess.Popen(
                 command,
                 cwd=str(BASE_DIR),
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
